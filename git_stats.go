@@ -8,9 +8,9 @@ import (
 )
 
 func main() {
-	repos := ReposForUser("maryrosecook")
-	fmt.Println(repos)
-	fmt.Println(len(repos))
+	dat := Members("recursecenter")
+	fmt.Println(dat)
+	fmt.Printf("Count: %v\n", len(dat))
 }
 
 func check(err error) {
@@ -19,46 +19,68 @@ func check(err error) {
 	}
 }
 
-func ReposForUser(user string) []string {
+func APIRequest(baseRequest string) []map[string]interface{} {
 	page := 0
 	perPage := 100
 	done := false
-	j := make([]string, 0)
+	fin := make([]map[string]interface{}, 0)
 
 	for !done {
-		page++
-
-		// Get the response
 		resp, err := http.Get(
-			fmt.Sprintf("https://api.github.com/users/%s/repos?page=%v&per_page=%v",
-				user, page, perPage))
+			fmt.Sprintf("https://api.github.com/%v?page=%v&per_page=%v", baseRequest, page, perPage))
 		check(err)
-		defer resp.Body.Close()
 
-		// Read the response
 		body, err := ioutil.ReadAll(resp.Body)
+		resp.Body.Close()
 		check(err)
 
-		// Convert to JSON
-		pg := make([]map[string]interface{}, 0)
-		err = json.Unmarshal(body, &pg)
+		js := make([]map[string]interface{}, 0)
+		err = json.Unmarshal(body, &js)
 		check(err)
 
-		// If the last page fetched less than 30 (the default repos per page)
-		if len(pg) < perPage {
+		if len(js) < perPage {
 			done = true
 		}
 
-		// Find the names of all the repo maps and append them
-		for _, repo := range pg {
-			// JSON hash map[string]interface{} so we ensure that we are getting strings
-			if str, ok := repo["name"].(string); ok {
-				j = append(j, str)
-			} else {
-				panic(fmt.Sprintf("Non-string value returned from API: %v", repo["name"]))
-			}
+		for _, item := range js {
+			fin = append(fin, item)
 		}
 	}
 
-	return j
+	return fin
+}
+
+func ValuesForKey(key string, js []map[string]interface{}) []interface{} {
+	fin := make([]interface{}, 0)
+	for _, item := range js {
+		fin = append(fin, item[key])
+	}
+
+	return fin
+}
+
+func StringifyInterfaceSlice(slc []interface{}) []string {
+	fin := make([]string, 0)
+
+	for _, v := range slc {
+		if str, ok := v.(string); ok {
+			fin = append(fin, str)
+		} else {
+			panic(fmt.Sprintf("Non-string value in JSON: %v\n", v))
+		}
+	}
+
+	return fin
+}
+
+func Repos(user string) []string {
+	js := APIRequest(fmt.Sprintf("users/%v/repos", user))
+	vals := ValuesForKey("name", js)
+	return StringifyInterfaceSlice(vals)
+}
+
+func Members(org string) []string {
+	js := APIRequest(fmt.Sprintf("orgs/%v/members", org))
+	vals := ValuesForKey("login", js)
+	return StringifyInterfaceSlice(vals)
 }
