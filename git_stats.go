@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"time"
 )
 
 func main() {
-	dat := Members("recursecenter")
+	dat := Members("recursecenter", 0)
 	fmt.Println(dat)
 	fmt.Printf("Count: %v\n", len(dat))
 }
@@ -19,15 +21,40 @@ func check(err error) {
 	}
 }
 
-func APIRequest(baseRequest string) []map[string]interface{} {
+func APIRequest(baseRequest string, limit int) []map[string]interface{} {
+	file, err := os.Open(fmt.Sprintf("%v/.github_api_key", os.Getenv("HOME")))
+	check(err)
+
+	contents, err := ioutil.ReadAll(file)
+	check(err)
+
+	token := string(contents)
+
+	total := 0
 	page := 0
-	perPage := 100
 	done := false
 	fin := make([]map[string]interface{}, 0)
+	var perPage int
+	if limit > 0 && limit < 100 {
+		perPage = limit
+	} else {
+		perPage = 100
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
 
 	for !done {
-		resp, err := http.Get(
-			fmt.Sprintf("https://api.github.com/%v?page=%v&per_page=%v", baseRequest, page, perPage))
+		page++
+
+		req, err := http.NewRequest(
+			"GET",
+			fmt.Sprintf("https://api.github.com/%v?page=%v&per_page=%v",
+				baseRequest, page, perPage),
+			nil)
+		check(err)
+		req.Header.Add("Authorization", fmt.Sprintf("token %s", token))
+
+		resp, err := client.Do(req)
 		check(err)
 
 		body, err := ioutil.ReadAll(resp.Body)
@@ -36,7 +63,9 @@ func APIRequest(baseRequest string) []map[string]interface{} {
 
 		js := make([]map[string]interface{}, 0)
 		err = json.Unmarshal(body, &js)
-		check(err)
+		if err != nil {
+			panic(string(body))
+		}
 
 		if len(js) < perPage {
 			done = true
@@ -44,6 +73,11 @@ func APIRequest(baseRequest string) []map[string]interface{} {
 
 		for _, item := range js {
 			fin = append(fin, item)
+			total++
+
+			if limit > 0 && total >= limit {
+				return fin
+			}
 		}
 	}
 
@@ -73,14 +107,14 @@ func StringifyInterfaceSlice(slc []interface{}) []string {
 	return fin
 }
 
-func Repos(user string) []string {
-	js := APIRequest(fmt.Sprintf("users/%v/repos", user))
+func Repos(user string, limit int) []string {
+	js := APIRequest(fmt.Sprintf("users/%v/repos", user), limit)
 	vals := ValuesForKey("name", js)
 	return StringifyInterfaceSlice(vals)
 }
 
-func Members(org string) []string {
-	js := APIRequest(fmt.Sprintf("orgs/%v/members", org))
+func Members(org string, limit int) []string {
+	js := APIRequest(fmt.Sprintf("orgs/%v/members", org), limit)
 	vals := ValuesForKey("login", js)
 	return StringifyInterfaceSlice(vals)
 }
